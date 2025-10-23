@@ -1,64 +1,99 @@
+import time
+from datetime import datetime
+from loguru import logger
 from db_manager import DatabaseManager
 from serpapi_client import SerpAPIClient
 
+
 class ETLPipeline:
+    """
+    Orchestrates the Amazon ETL workflow:
+    - Reads all product links
+    - Fetches metadata and reviews
+    - Inserts new reviews incrementally
+    """
+
     def __init__(self):
         self.db = DatabaseManager()
-        self.serpapi = SerpAPIClient()
+        self.client = SerpAPIClient()
 
-    def extract_asin(self, url):
-        for token in ["/dp/", "/product/", "/gp/product/"]:
-            if token in url:
-                return url.split(token)[1].split("/")[0]
-        return None
+    # Core ETL Logic
+    def run(self, skip_existing=True):
+        all_links = self.db.get_all_links()
+        total = len(all_links)
+        logger.info(f"Found {total} total links to scrape.")
 
-    def clean_number(self, value):
-        """Remove commas and non-numeric parts; return int or None."""
-        if not value:
-            return None
-        try:
-            return int(value.replace(",", "").split()[0])
-        except Exception:
-            return None
+        processed = 0
+        skipped = 0
+        errors = 0
 
-    def run(self):
-        links = self.db.fetch_links(limit=50)
-        for link in links:
+        for link in all_links:
+            asin = link["asin"]
             url = link["url"]
-            asin = self.extract_asin(url)
-            if not asin:
-                print(f"Could not extract ASIN from {url}")
-                continue
 
-            # ---- SERPAPI + HTML ----
             try:
-                product_data = self.serpapi.get_product_metadata(url)
-                reviews = self.serpapi.get_reviews(url)
+                last_extracted = self.db.get_last_extracted(asin)
+
+                # Skip if already processed and skip_existing=True
+                if skip_existing and last_extracted is not None:
+                    logger.info(f"Skipping {asin} — already processed on {last_extracted}")
+                    skipped += 1
+                    continue
+
+                # ------------------------------
+                # 1. Fetch product metadata
+                # ------------------------------
+                metadata = self.client.get_product_metadata(url)
+                logger.info(f"Parsed metadata: {metadata}")
+
+                # ------------------------------
+                # 2. Fetch reviews incrementally
+                # ------------------------------
+                all_reviews = self.client.get_reviews(url)
+
+                new_reviews = []
+                if all_reviews:
+                    if last_extracted:
+                        cutoff = last_extracted
+                        for review in all_reviews:
+                            rd = review.get("review_date")
+                            # Only consider new reviews (after cutoff)
+                            if rd and isinstance(rd, datetime):
+                                if rd > cutoff:
+                                    new_reviews.append(review)
+                            else:
+                                # Keep if review_date is unknown (fallback)
+                                new_reviews.append(review)
+                    else:
+                        # First-time extraction
+                        new_reviews = all_reviews
+
+                logger.info(
+                    f"Found {len(all_reviews)} reviews, inserting {len(new_reviews)} new ones for {asin}"
+                )
+
+                # ------------------------------
+                # 3. Insert into DB
+                # ------------------------------
+                for review in new_reviews:
+                    self.db.insert_review(asin, review)
+
+                processed += 1
+                logger.success(f"✓ Processed {asin}: {len(new_reviews)} new reviews inserted")
+
+                time.sleep(2)  # polite delay to avoid SerpApi rate limits
+
             except Exception as e:
-                print(f"Error fetching data for {asin}: {e}")
-                continue
+                errors += 1
+                logger.error(f"❌ Error processing {asin}: {e}")
 
-            total_reviews = self.clean_number(product_data.get("reviews_total"))
-            avg_star_rating = None
-            try:
-                avg_star_rating = float(product_data.get("rating")) if product_data.get("rating") else None
-            except ValueError:
-                avg_star_rating = None
-
-            for r in reviews:
-                review_record = {
-                    "asin": asin,
-                    "product_url": url,
-                    "title": product_data.get("title"),
-                    "price": product_data.get("price"),
-                    "avg_star_rating": avg_star_rating,
-                    "total_reviews": total_reviews,
-                    "review_title": r.get("review_title"),
-                    "review_text": r.get("review_text"),
-                    "rating": r.get("rating"),
-                    "review_date": r.get("review_date"),
-                    "verified": r.get("verified"),
-                }
-                self.db.insert_review(review_record)
+        logger.info("\n==================================================")
+        logger.info("ETL PIPELINE SUMMARY")
+        logger.info("==================================================")
+        logger.info(f"Processed: {processed}")
+        logger.info(f"Skipped (already exists): {skipped}")
+        logger.info(f"Errors: {errors}")
+        logger.info("==================================================")
 
         self.db.close()
+        return {"processed": processed, "skipped": skipped, "errors": errors}

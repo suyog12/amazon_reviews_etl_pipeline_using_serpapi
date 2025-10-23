@@ -1,20 +1,26 @@
-# Core dependencies
+# --- Core Dependencies ---
 python-dotenv==1.0.1
-pandas==2.2.3
 requests==2.32.3
+beautifulsoup4==4.12.3
 
-# PostgreSQL and connection pooling
-psycopg[binary,pool]==3.2.6
+# --- Data Handling ---
+pandas==2.2.3
 
-# Amazon API signing & AWS crypto support
-boto3==1.35.40
+# --- Database Connectivity ---
+psycopg2-binary==2.9.9
 
-# SerpApi client
-google-search-results
+# --- API Framework ---
+Flask==3.0.3
+Flask-Cors==5.0.0
 
-# Logging & scheduling (optional but recommended for scalability)
+# --- SerpApi Client ---
+google-search-results==2.4.2
+
+# --- Logging & Utility (optional, for debugging/logs) ---
 loguru==0.7.2
 
-# Optional: sentiment analysis extension (future upgrade)
+# --- Optional NLP / Sentiment (future upgrade) ---
 vaderSentiment==3.3.2
 textblob==0.18.0.post0
+
+psycopg[binary,pool]==3.2.6

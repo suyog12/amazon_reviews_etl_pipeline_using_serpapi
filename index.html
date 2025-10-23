@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Amazon Reviews ETL Pipeline</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #f5f6fa;
+      color: #333;
+      min-height: 100vh;
+    }
+
+    header {
+      background: linear-gradient(135deg, #4338ca, #6d28d9);
+      color: white;
+      text-align: center;
+      padding: 2rem 1rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    header h1 { font-size: 2rem; font-weight: 600; margin-bottom: 0.3rem; }
+    header p { opacity: 0.9; font-size: 1rem; }
+
+    main {
+      max-width: 1100px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+    }
+
+    .section {
+      background: #fff;
+      border-radius: 10px;
+      padding: 25px 30px;
+      margin-bottom: 25px;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.05);
+    }
+
+    .section h2 {
+      color: #4338ca;
+      margin-bottom: 1rem;
+      border-bottom: 2px solid #e0e7ff;
+      padding-bottom: 8px;
+      font-weight: 600;
+    }
+
+    input, textarea, select {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 14px;
+      transition: border-color 0.2s;
+    }
+
+    input:focus, textarea:focus, select:focus {
+      border-color: #6366f1;
+      outline: none;
+    }
+
+    textarea { min-height: 100px; resize: vertical; }
+
+    button {
+      background: linear-gradient(135deg, #4f46e5, #6d28d9);
+      color: #fff;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 15px;
+      cursor: pointer;
+      transition: background 0.3s, transform 0.2s;
+    }
+
+    button:hover { background: linear-gradient(135deg, #4338ca, #5b21b6); transform: translateY(-1px); }
+    button:disabled { background: #9ca3af; cursor: not-allowed; }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 20px;
+    }
+
+    .stat-card {
+      background: #f9fafb;
+      border-radius: 8px;
+      text-align: center;
+      padding: 20px;
+      border: 1px solid #e5e7eb;
+    }
+
+    .stat-card h3 { color: #4338ca; font-size: 2rem; margin-bottom: 6px; }
+    .stat-card p { font-size: 0.95rem; color: #555; }
+
+    .alert {
+      margin-top: 15px;
+      padding: 12px 15px;
+      border-radius: 5px;
+      font-size: 0.9rem;
+    }
+
+    .alert-success { background: #e6f9ed; border: 1px solid #16a34a; color: #065f46; }
+    .alert-error { background: #fee2e2; border: 1px solid #dc2626; color: #7f1d1d; }
+    .alert-info { background: #e0f2fe; border: 1px solid #0284c7; color: #075985; }
+
+    .spinner {
+      display: inline-block;
+      width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-radius: 50%;
+      border-top-color: white;
+      animation: spin 1s linear infinite;
+      margin-right: 6px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .progress-bar-container {
+      width: 100%;
+      background: #e5e7eb;
+      border-radius: 6px;
+      margin-top: 10px;
+      height: 10px;
+      overflow: hidden;
+    }
+
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, #4f46e5, #6d28d9);
+      width: 0%;
+      transition: width 0.4s ease;
+    }
+
+    .btn-group { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>Amazon Reviews ETL Pipeline</h1>
+    <p>Manage product URLs, extract reviews, and export structured datasets</p>
+  </header>
+
+  <main>
+    <!-- Dashboard -->
+    <div class="section">
+      <h2>Dashboard Overview</h2>
+      <div id="statsContainer" class="stats">
+        <div class="stat-card"><h3 id="totalLinks">-</h3><p>Total Links</p></div>
+        <div class="stat-card"><h3 id="processedAsins">-</h3><p>Processed Products</p></div>
+        <div class="stat-card"><h3 id="pendingLinks">-</h3><p>Pending Links</p></div>
+        <div class="stat-card"><h3 id="totalReviews">-</h3><p>Total Reviews</p></div>
+        <div class="stat-card"><h3 id="noReviewsFound">-</h3><p>No Reviews Found</p></div>
+      </div>
+      <div id="statusMessage"></div>
+      <div class="progress-bar-container"><div id="progressBar" class="progress-bar"></div></div>
+    </div>
+
+    <!-- Add URLs -->
+    <div class="section">
+      <h2>Add Amazon URLs</h2>
+      <div class="form-group">
+        <label>Amazon Product URLs (one per line):</label>
+        <textarea id="urlInput" placeholder="https://www.amazon.com/dp/B08N5WRWNW&#10;https://www.amazon.com/dp/B0BDJ9Z6ZT"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Product Category:</label>
+        <select id="categoryInput">
+          <option value="Search">Search</option>
+          <option value="Experience">Experience</option>
+        </select>
+      </div>
+      <button onclick="addUrls()">Add URLs</button>
+      <div id="addUrlsMessage"></div>
+    </div>
+
+    <!-- Process -->
+    <div class="section">
+      <h2>Process Reviews</h2>
+      <p>Run ETL to extract and store Amazon product reviews in real time.</p>
+      <div class="btn-group">
+        <button onclick="processReviews(true)" id="processBtn">Process New Products Only</button>
+        <button onclick="processReviews(false)" id="processAllBtn">Reprocess All Products</button>
+      </div>
+      <div id="processMessage"></div>
+    </div>
+
+    <!-- Export -->
+    <div class="section">
+      <h2>Export Reviews</h2>
+      <div class="form-group">
+        <label>Filter by Category:</label>
+        <select id="exportCategory">
+          <option value="">All Categories</option>
+          <option value="Search">Search</option>
+          <option value="Experience">Experience</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Filter by ASIN (optional):</label>
+        <input type="text" id="exportAsin" placeholder="e.g., B08N5WRWNW" />
+      </div>
+      <button onclick="exportCsv()">Download CSV</button>
+      <div id="exportMessage"></div>
+    </div>
+  </main>
+
+  <script>
+    const API_URL = "http://localhost:5000/api";
+
+    window.onload = () => {
+      updateStats();
+      setInterval(updateStatus, 3000);
+    };
+
+    async function updateStatus() {
+      try {
+        const res = await fetch(`${API_URL}/status`);
+        const data = await res.json();
+
+        document.getElementById("totalLinks").textContent = data.stats.total_links || 0;
+        document.getElementById("processedAsins").textContent = data.stats.processed_asins || 0;
+        document.getElementById("pendingLinks").textContent = data.stats.pending_links || 0;
+        document.getElementById("totalReviews").textContent = data.stats.total_reviews || 0;
+        document.getElementById("noReviewsFound").textContent = data.stats.no_reviews_found || 0;
+
+
+        const total = data.stats.total_links || 0;
+        const processed = data.stats.processed_asins || 0;
+        const progress = total > 0 ? Math.min((processed / total) * 100, 100) : 0;
+        document.getElementById("progressBar").style.width = `${progress}%`;
+
+        const statusDiv = document.getElementById("statusMessage");
+        const msg = data.processing.message || "";
+        const isProcessing = data.processing.is_processing;
+
+        if (isProcessing) {
+          statusDiv.innerHTML = `
+            <div class="alert alert-info">
+              <strong>Processing in progress...</strong><br>${msg}<br>
+              <small>Status updates every few seconds.</small>
+            </div>`;
+          document.getElementById("processBtn").disabled = true;
+          document.getElementById("processAllBtn").disabled = true;
+        } else if (!isProcessing && msg.toLowerCase().includes("completed")) {
+          statusDiv.innerHTML = `
+            <div class="alert alert-success">
+              Processing completed successfully.
+            </div>`;
+          document.getElementById("processBtn").disabled = false;
+          document.getElementById("processAllBtn").disabled = false;
+        } else if (!isProcessing && msg.toLowerCase().includes("error")) {
+          statusDiv.innerHTML = `
+            <div class="alert alert-error">
+              ${msg}
+            </div>`;
+          document.getElementById("processBtn").disabled = false;
+          document.getElementById("processAllBtn").disabled = false;
+        }
+      } catch (e) {
+        console.error("Status update failed:", e);
+      }
+    }
+
+    async function updateStats() {
+      await updateStatus();
+    }
+
+    async function addUrls() {
+      const urlText = document.getElementById("urlInput").value.trim();
+      const category = document.getElementById("categoryInput").value;
+      const msgDiv = document.getElementById("addUrlsMessage");
+
+      if (!urlText) {
+        msgDiv.innerHTML = '<div class="alert alert-error">Please enter at least one URL.</div>';
+        return;
+      }
+
+      const urls = urlText.split("\n").map(u => u.trim()).filter(Boolean);
+
+      try {
+        const res = await fetch(`${API_URL}/links`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ urls, product_type: category })
+        });
+        const data = await res.json();
+        msgDiv.innerHTML = res.ok
+          ? `<div class="alert alert-success">${data.message}</div>`
+          : `<div class="alert alert-error">${data.error}</div>`;
+        if (res.ok) {
+          document.getElementById("urlInput").value = "";
+          updateStats();
+        }
+      } catch (e) {
+        msgDiv.innerHTML = `<div class="alert alert-error">Error: ${e.message}</div>`;
+      }
+    }
+
+    async function processReviews(skipExisting) {
+      const msgDiv = document.getElementById("processMessage");
+      msgDiv.innerHTML = '<div class="alert alert-info"><span class="spinner"></span> Initializing ETL...</div>';
+      try {
+        const res = await fetch(`${API_URL}/process`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ skip_existing: skipExisting })
+        });
+        const data = await res.json();
+        msgDiv.innerHTML = res.ok
+          ? `<div class="alert alert-info">${data.message}</div>`
+          : `<div class="alert alert-error">${data.error}</div>`;
+        updateStats();
+      } catch (e) {
+        msgDiv.innerHTML = `<div class="alert alert-error">Error: ${e.message}</div>`;
+      }
+    }
+
+    async function exportCsv() {
+      const category = document.getElementById("exportCategory").value;
+      const asin = document.getElementById("exportAsin").value.trim();
+      const msgDiv = document.getElementById("exportMessage");
+
+      try {
+        const params = new URLSearchParams();
+        if (category) params.append("product_type", category);
+        if (asin) params.append("asin", asin);
+
+        const res = await fetch(`${API_URL}/export?${params.toString()}`);
+        if (!res.ok) {
+          const err = await res.json();
+          msgDiv.innerHTML = `<div class="alert alert-error">${err.error}</div>`;
+          return;
+        }
+
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `amazon_reviews_${Date.now()}.csv`;
+        a.click();
+        msgDiv.innerHTML = `<div class="alert alert-success">CSV downloaded successfully.</div>`;
+      } catch (e) {
+        msgDiv.innerHTML = `<div class="alert alert-error">Error: ${e.message}</div>`;
+      }
+    }
+  </script>
+</body>
+</html>
