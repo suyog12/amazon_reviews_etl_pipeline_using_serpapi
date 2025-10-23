@@ -1,0 +1,20 @@
+# Core dependencies
+python-dotenv==1.0.1
+pandas==2.2.3
+requests==2.32.3
+
+# PostgreSQL and connection pooling
+psycopg[binary,pool]==3.2.6
+
+# Amazon API signing & AWS crypto support
+boto3==1.35.40
+
+# SerpApi client
+google-search-results
+
+# Logging & scheduling (optional but recommended for scalability)
+loguru==0.7.2
+
+# Optional: sentiment analysis extension (future upgrade)
+vaderSentiment==3.3.2
+textblob==0.18.0.post0

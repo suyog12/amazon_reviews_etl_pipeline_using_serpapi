@@ -1,0 +1,31 @@
+# Environment and credentials
+.env
+*.pem
+
+# Python cache and logs
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# Virtual environments
+venv/
+env/
+*.sqlite3
+
+# IDE and system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Build and test
+build/
+dist/
+*.egg-info/
+
+# Temporary or debug files
+*.tmp
+*.bak
+*.swp
