@@ -1,99 +1,69 @@
 import time
-from datetime import datetime
 from loguru import logger
 from db_manager import DatabaseManager
 from serpapi_client import SerpAPIClient
 
-
 class ETLPipeline:
-    """
-    Orchestrates the Amazon ETL workflow:
-    - Reads all product links
-    - Fetches metadata and reviews
-    - Inserts new reviews incrementally
-    """
+    """Manages ETL logic for Amazon review extraction and storage."""
 
     def __init__(self):
         self.db = DatabaseManager()
         self.client = SerpAPIClient()
 
-    # Core ETL Logic
     def run(self, skip_existing=True):
         all_links = self.db.get_all_links()
         total = len(all_links)
-        logger.info(f"Found {total} total links to scrape.")
+        logger.info(f"Found {total} total product links.")
 
-        processed = 0
-        skipped = 0
-        errors = 0
+        # Reprocess All
+        if not skip_existing:
+            logger.warning("Reprocessing all — clearing amazon_reviews table.")
+            self.db.clear_all_reviews()
+            time.sleep(1)
+
+        processed, skipped, errors = 0, 0, 0
 
         for link in all_links:
-            asin = link["asin"]
             url = link["url"]
 
             try:
-                last_extracted = self.db.get_last_extracted(asin)
-
-                # Skip if already processed and skip_existing=True
-                if skip_existing and last_extracted is not None:
-                    logger.info(f"Skipping {asin} — already processed on {last_extracted}")
+                if skip_existing and self.db.url_in_reviews(url):
+                    logger.info(f"Skipping {url} (already reviewed).")
                     skipped += 1
                     continue
 
-                # ------------------------------
-                # 1. Fetch product metadata
-                # ------------------------------
+                # Fetch metadata
                 metadata = self.client.get_product_metadata(url)
-                logger.info(f"Parsed metadata: {metadata}")
+                if metadata.get("title"):
+                    self.db.update_product_name_by_url(url, metadata["title"])
+                logger.info(f"Metadata: {metadata}")
 
-                # ------------------------------
-                # 2. Fetch reviews incrementally
-                # ------------------------------
-                all_reviews = self.client.get_reviews(url)
+                # Fetch reviews
+                reviews = self.client.get_reviews(url)
+                if not reviews:
+                    logger.warning(f"No reviews found for {url}")
+                    continue
 
-                new_reviews = []
-                if all_reviews:
-                    if last_extracted:
-                        cutoff = last_extracted
-                        for review in all_reviews:
-                            rd = review.get("review_date")
-                            # Only consider new reviews (after cutoff)
-                            if rd and isinstance(rd, datetime):
-                                if rd > cutoff:
-                                    new_reviews.append(review)
-                            else:
-                                # Keep if review_date is unknown (fallback)
-                                new_reviews.append(review)
-                    else:
-                        # First-time extraction
-                        new_reviews = all_reviews
-
-                logger.info(
-                    f"Found {len(all_reviews)} reviews, inserting {len(new_reviews)} new ones for {asin}"
-                )
-
-                # ------------------------------
-                # 3. Insert into DB
-                # ------------------------------
-                for review in new_reviews:
-                    self.db.insert_review(asin, review)
+                for review in reviews:
+                    self.db.insert_review_by_url(url, {
+                        "review_title": review.get("review_title"),
+                        "review_text": review.get("review_text"),
+                        "rating": review.get("rating"),
+                        "reviewer_name": review.get("reviewer_name"),
+                        "review_date": review.get("review_date"),
+                    })
 
                 processed += 1
-                logger.success(f"✓ Processed {asin}: {len(new_reviews)} new reviews inserted")
-
-                time.sleep(2)  # polite delay to avoid SerpApi rate limits
+                logger.success(f"Processed {url}: {len(reviews)} reviews inserted")
+                time.sleep(2)
 
             except Exception as e:
                 errors += 1
-                logger.error(f"❌ Error processing {asin}: {e}")
+                logger.error(f"Error processing {url}: {e}")
 
-        logger.info("\n==================================================")
-        logger.info("ETL PIPELINE SUMMARY")
-        logger.info("==================================================")
+        logger.info("\n========== ETL SUMMARY ==========")
         logger.info(f"Processed: {processed}")
-        logger.info(f"Skipped (already exists): {skipped}")
+        logger.info(f"Skipped: {skipped}")
         logger.info(f"Errors: {errors}")
-        logger.info("==================================================")
-
-        self.db.close()
+        logger.info("=================================")
         return {"processed": processed, "skipped": skipped, "errors": errors}

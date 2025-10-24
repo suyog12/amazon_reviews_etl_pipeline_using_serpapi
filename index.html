@@ -149,10 +149,7 @@
       <h2>Dashboard Overview</h2>
       <div id="statsContainer" class="stats">
         <div class="stat-card"><h3 id="totalLinks">-</h3><p>Total Links</p></div>
-        <div class="stat-card"><h3 id="processedAsins">-</h3><p>Processed Products</p></div>
-        <div class="stat-card"><h3 id="pendingLinks">-</h3><p>Pending Links</p></div>
         <div class="stat-card"><h3 id="totalReviews">-</h3><p>Total Reviews</p></div>
-        <div class="stat-card"><h3 id="noReviewsFound">-</h3><p>No Reviews Found</p></div>
       </div>
       <div id="statusMessage"></div>
       <div class="progress-bar-container"><div id="progressBar" class="progress-bar"></div></div>
@@ -211,7 +208,7 @@
     const API_URL = "http://localhost:5000/api";
 
     window.onload = () => {
-      updateStats();
+      updateStatus();
       setInterval(updateStatus, 3000);
     };
 
@@ -221,15 +218,12 @@
         const data = await res.json();
 
         document.getElementById("totalLinks").textContent = data.stats.total_links || 0;
-        document.getElementById("processedAsins").textContent = data.stats.processed_asins || 0;
-        document.getElementById("pendingLinks").textContent = data.stats.pending_links || 0;
         document.getElementById("totalReviews").textContent = data.stats.total_reviews || 0;
-        document.getElementById("noReviewsFound").textContent = data.stats.no_reviews_found || 0;
 
-
+        // simple progress display based on reviews
         const total = data.stats.total_links || 0;
-        const processed = data.stats.processed_asins || 0;
-        const progress = total > 0 ? Math.min((processed / total) * 100, 100) : 0;
+        const reviews = data.stats.total_reviews || 0;
+        const progress = total > 0 ? Math.min((reviews / total) * 100, 100) : 0;
         document.getElementById("progressBar").style.width = `${progress}%`;
 
         const statusDiv = document.getElementById("statusMessage");
@@ -251,6 +245,7 @@
             </div>`;
           document.getElementById("processBtn").disabled = false;
           document.getElementById("processAllBtn").disabled = false;
+          updateStatus();
         } else if (!isProcessing && msg.toLowerCase().includes("error")) {
           statusDiv.innerHTML = `
             <div class="alert alert-error">
@@ -262,10 +257,6 @@
       } catch (e) {
         console.error("Status update failed:", e);
       }
-    }
-
-    async function updateStats() {
-      await updateStatus();
     }
 
     async function addUrls() {
@@ -292,7 +283,7 @@
           : `<div class="alert alert-error">${data.error}</div>`;
         if (res.ok) {
           document.getElementById("urlInput").value = "";
-          updateStats();
+          updateStatus();
         }
       } catch (e) {
         msgDiv.innerHTML = `<div class="alert alert-error">Error: ${e.message}</div>`;
@@ -302,17 +293,19 @@
     async function processReviews(skipExisting) {
       const msgDiv = document.getElementById("processMessage");
       msgDiv.innerHTML = '<div class="alert alert-info"><span class="spinner"></span> Initializing ETL...</div>';
+
       try {
         const res = await fetch(`${API_URL}/process`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ skip_existing: skipExisting })
         });
+
         const data = await res.json();
         msgDiv.innerHTML = res.ok
           ? `<div class="alert alert-info">${data.message}</div>`
           : `<div class="alert alert-error">${data.error}</div>`;
-        updateStats();
+        updateStatus();
       } catch (e) {
         msgDiv.innerHTML = `<div class="alert alert-error">Error: ${e.message}</div>`;
       }
